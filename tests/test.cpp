@@ -8,7 +8,7 @@ public:
     CodeRefactorActionTesting() { RewriterBuffer.clear(); }
 
     virtual void EndSourceFileAction() override {
-        // Применяем изменения в файле.
+        // Сохраняем изменения в буфер.
         auto &EditBuffer =
             RewriterForCodeRefactor.getEditBuffer(RewriterForCodeRefactor.getSourceMgr().getMainFileID());
         llvm::raw_string_ostream OsStr(RewriterBuffer);
