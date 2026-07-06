@@ -121,8 +121,9 @@ TEST(MethodDeclTest, FuncOverrideCheck){
         class Derived : public Base {
         public:
             void func() {}  // Переопределен без override
-            void func(int a) {}  // Переопределен без override
+            void func(int a);  // Переопределен без override
         };
+        void Derived::func(int a) {}
     )"};
     std::string Expected{R"(
         class Base {
@@ -133,9 +134,10 @@ TEST(MethodDeclTest, FuncOverrideCheck){
 
         class Derived : public Base {
         public:
-            void func() override {}  // Переопределен без override
-            void func(int a) override {}  // Переопределен без override
+            void func()  override {}  // Переопределен без override
+            void func(int a) override ;  // Переопределен без override
         };
+        void Derived::func(int a) {}
     )"};
 
     EXPECT_TRUE(clang::tooling::runToolOnCode(std::make_unique<CodeRefactorActionTesting>(), Code, FileName));
@@ -186,6 +188,29 @@ TEST(VarDeclTest, BasicTypeNoChangeCheck){
             // Фундаментальный тип, не меняется
             std::vector<int> ints = {1, 2};
             for (const int x : ints) {}
+        }
+    )"};
+
+    EXPECT_TRUE(clang::tooling::runToolOnCode(std::make_unique<CodeRefactorActionTesting>(), Code, FileName));
+    EXPECT_EQ(CodeRefactorActionTesting::GetRewriterBuffer(), Code);
+}
+
+TEST(VarDeclTest, NoConstNoChangeCheck) {
+    std::string Code{R"(
+        #include <vector>
+        #include <string>
+
+        struct CustomType {
+            int id;
+            std::string name;
+        };
+
+        int main(){
+            std::vector<CustomType> vec = {{1, "a"}, {2, "b"}};
+
+            for (auto x : vec) {}
+            for (CustomType x : vec) {}
+            for (decltype(vec)::value_type x : vec) {}
         }
     )"};
 

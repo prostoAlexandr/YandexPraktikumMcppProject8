@@ -10,6 +10,7 @@
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/SourceLocation.h>
+#include <clang/Basic/TokenKinds.h>
 #include <clang/Lex/Lexer.h>
 #include <stdexcept>
 #include <unordered_set>
@@ -45,11 +46,10 @@ void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor,
                             DiagnosticsEngine &Diag,
                             SourceManager &SM) {
     //Реализуйте Ваш код ниже
-    static std::unordered_set<const CXXDestructorDecl *> dtor_set;
-    if (dtor_set.contains(Dtor)) {
+    if (virtualDtorLocations.contains(Dtor->getODRHash())) {
         return;
     }
-    dtor_set.insert(Dtor);
+    virtualDtorLocations.insert(Dtor->getODRHash());
 
     clang::SourceLocation Loc = Dtor->getLocation();
     if (!SM.isInMainFile(Loc)) {
@@ -75,14 +75,16 @@ void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method,
     }
 
     const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Объявлен метод");
-    const char *ptr = SM.getCharacterData(Loc);
-    size_t counter = 0;
-    while (*ptr != ')') {
-        ++ptr;
-        ++counter;
-    }
+    std::optional<Token> token;
+    do {
+        token = clang::Lexer::findNextToken(Loc, SM, Method->getASTContext().getLangOpts());
+        Loc = token->getLocation();
+        if (!token.has_value()) {
+            return;
+        }
+    } while (!token->isOneOf(tok::l_brace, tok::semi));
 
-    Rewrite.InsertTextAfterToken(Loc.getLocWithOffset(counter + 1), " override");
+    Rewrite.InsertTextBefore(Loc, " override ");
     Diag.Report(Method->getLocation(), DiagID);
 }
 
@@ -91,20 +93,23 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar,
                                         DiagnosticsEngine &Diag,
                                         SourceManager &SM){
     // Реализуйте Ваш код ниже
-    clang::SourceLocation Loc = LoopVar->getTypeSpecStartLoc();
+    clang::SourceLocation Loc = LoopVar->getBeginLoc();
     if (!SM.isInMainFile(Loc)) {
         return;
     }
 
     const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Объявлена переменная");
-    const char *ptr = SM.getCharacterData(Loc);
-    size_t counter = 0;
-    while (*ptr != ' ') {
-        ++ptr;
-        ++counter;
-    }
+    std::optional<Token> Token;
+    do {
+        Token = clang::Lexer::findNextToken(Loc, SM, LoopVar->getASTContext().getLangOpts());
+        Loc = Token->getLocation();
+        if (!Token.has_value()) {
+            return;
+        }
+    } while (!Token->is(tok::colon));
+    Token = clang::Lexer::findPreviousToken(Loc, SM, LoopVar->getASTContext().getLangOpts(), false);
 
-    Rewrite.InsertTextAfter(Loc.getLocWithOffset(counter + 1), "&");
+    Rewrite.InsertTextBefore(Token->getLocation(), "&");
     Diag.Report(LoopVar->getLocation(), DiagID);
 }
 
@@ -127,8 +132,8 @@ auto NvDtorMatcher()
 auto NoOverrideMatcher()
 {
     //todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска методов без override
-    return cxxMethodDecl(
-               allOf(unless(hasAttr(attr::Override)), isOverride(), unless(isImplicit()), unless(cxxDestructorDecl())))
+    return cxxMethodDecl(allOf(hasParent(cxxRecordDecl()), unless(hasAttr(attr::Override)), isOverride(),
+                               unless(isImplicit()), unless(cxxDestructorDecl())))
         .bind("methodDecl");
 }
 
